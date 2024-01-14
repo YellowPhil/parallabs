@@ -21,59 +21,62 @@
 - Worst case `O(n^2)`
 
 
-## Анализ алгоритма
+### Анализ алгоритма
 
 #### Блок схема
 ![BlockScheme](blockscheme.png)
 
-## Значение директив
+### Значение директив
 
 `#pragma omp parallel for shared(gap, count, array) private(i, j, tmp, part) default(none) num_threads(threads)`
 
-Задается обасть параллельного цикла, с количеством тредов <code>threads</code>. Переменные <code>array</code>, <code>count</code> и <code>gap</code> объявляются общими для всех тредов и непараллельной части алгоритма. Все новые переменные без явного указания класса не разрешены. Переменные <code>i</code>, <code>j</code>, <code>tmp</code> и <code>part</code> объявляется индивидуальной для каждого треда.
-Область - <code>цикл for</code>
+Задается обасть параллельного цикла, с количеством потоков, равное `threads`. Переменные `array`, `count` и `gap` объявляются общими для всех потоков и непараллельной части алгоритма. Все новые переменные без явного указания класса не разрешены. Переменные `i, j, tmp` и `part` объявляется индивидуальной для каждого треда.
 
-Эта директива необходима для распараллеливания сортировки элементов массива, которые отстоят друг от друга на расстоянии <code>gap</code>, потому что они не пересекаются с остальными и соответственно уменьшения время всей сортировки.
+Область - цикл `for`
+Эта директива необходима для распараллеливания сортировки элементов массива, которые отстоят друг от друга на расстоянии gap, потому что они не пересекаются с остальными и соответственно уменьшения время всей сортировки.
 
 
-## Параллельный алгоритм
-200 раз генерируется случайный массив из ста тысяч элементов с разным сидом, чтобы усреднить худшие и лучшие случаи.<br>
-Всего эксперимент занял два часа <br>
-![TimeSpent](timing.png)<br>
+### Параллельный алгоритм
+
+Для измерений с усреднением по количеству лучших и худших случаев использовался вспомогательный python код, который запустил исходный код 200 раз.
 
 ### Среднее время
 
-![AvgTime](AVG_time.png)
+![TimeSpent](./assets/average_time.png)
 
 ### Среднее ускорение
-![Acceleration](acceleration.png)
+
+![Acceleration](./assets/acceleration.png)
+
 ### Средняя эффективность
 
-![Efficiency](efficiency.png)
+![Efficiency](./assets/efficiency.png)
 
 ## Заключение
-В данной работе я разработал и реализовал параллельный алгоритм сортировки Шелла. Ускорение возможно, потому что во втором вложенном цикле происходят сортировки пузырьком для элементов отстающих друг от друга на фиксированную величину <code>gap</code>, а следовательно все элементы, стоящие на индексах <code>0..gap-1</code>, образуют непересекающиеся множества.
+В данной работе мы разработали и реализовали параллельный алгоритм сортировки Шелла. Ускорение возможно, потому что во втором вложенном цикле происходит сортировка "Пузырьком", для которой возможно применить принцип параллелизма, так как он работает с непересекающимися множествами.
 
 Анализ графиков показал, что:
-- Как и ожидалось, после 16 потоков ускорения не происходит.
-- 
+ - После 16 потоков ускорения не происходит.
 
 
 ## Приложение
-### Оценка работы последовательной программы производилось при использовании параллельной программы с одним потоком.
-### Оценка работы параллельной программы
+Оценка работы последовательной программы производилось при использовании параллельной программы с одним потоком.
+### Программа для оценки времени работы алгоритма сортировки
 
 ```c
+
 #include <omp.h>
 #include <stdio.h>
+#include <limits.h>
+#include <stdlib.h>
 
-double shellsort(int* array, int count, int threads){
-    double t1, t2;
+double shellsort(int *array, int count, int threadNum) {
+    double startTime = omp_get_wtime();
     int i, j, tmp, part;
-    t1 = omp_get_wtime();
-    for(int gap = count/2; gap > 0; gap /= 2){
-        #pragma omp parallel for shared(gap, count, array) private(i, j, tmp, part) default(none) num_threads(threads)
-        for(i = 0; i < gap; i++){
+
+    for (int gap = count / 2; gap > 0; gap /= 2) {
+        #pragma omp parallel for shared(gap, count, array) private(i, j, tmp, part) default(none) num_threads(threadNum)
+      for(i = 0; i < gap; i++){
             for(part = i + gap; part < count; part += gap){
                 for(j=part; j>i  && array[j-gap] > array[j]; j-=gap){
                     tmp = array[j];
@@ -83,40 +86,42 @@ double shellsort(int* array, int count, int threads){
             }
         }
     }
-    t2 = omp_get_wtime();
-    return t2 - t1;
+    // get current time
+    return omp_get_wtime() - startTime;
 }
 
-int main(int argc, char** argv)
-{
-  const int count = 10000000;     ///< Number of array elements
-  const int target = 16;          ///< Number to look for
+int main(int argc, char **argv) {
+    size_t arraySize = 20000000l;
 
-  int* array = 0;                 ///< The array we need to find the max in
-  int  index = -1;                ///< The index of the element we need
-  if (argc < 3){
-    puts("USAGE ./a.out {THREADS_NUM} {SEED}");
-    return -1;
-  }
-  const int threads = atoi(argv[1]);         ///< Number of parallel threads to use
-  const int random_seed = atoi(argv[2]); ///< RNG seed
+    // maximal element
+    int max = -1;
 
-  /* Initialize the RNG */
-  srand(random_seed);
+    // check correct usage
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s {THREAD_NUM} {SEED}", argv[0]);
+        return 1;
+    }
 
-  /* Generate the random array */
+    int threadNum = atoi(argv[1]);  // Thread Amount
+    int seed = atoi(argv[2]);       // Seed for initialization of random
+    
+    // Check for overflow or invalid argument in the first place
+    if (threadNum <= 0) {
+        fprintf(stderr, "Provide thread number in range: 1 - %d", INT_MAX);
+        return 1;
+    }
 
-  /*
-   * We can multithread array filling
-   * */
+    // Random init
+    srand(seed);
 
-  array = (int*)malloc(count*sizeof(int));
-  for(int i=0; i<count; i++){ 
-    array[i] = rand(); 
-  }
-  double t = shellsort(array, count, threads);
-  printf("%g", t);
+    int *array = calloc(arraySize * sizeof(int), 1);
 
-  return 0;
+    //array initialization with random values
+    for (int i = 0; i < arraySize; i++) {
+        array[i] = rand();
+    }
+    fprintf(stdout, "%g", shellsort(array, arraySize, threadNum));
+
+    return 0;
 }
 ```
